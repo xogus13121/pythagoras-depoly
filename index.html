@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>Project Pythagoras</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        /* [추가됨] 로딩 스피너 애니메이션 CSS */
+        .spinner {
+            width: 60px;
+            height: 60px;
+            border: 6px solid #f3f3f3;
+            border-top: 6px solid #ff4757; /* 메인 테마 색상으로 변경 가능 */
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        /* 버튼 비활성화 상태 스타일 */
+        button:disabled, select:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+
+<div id="loadingOverlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255, 255, 255, 0.85); z-index: 9999; flex-direction: column; justify-content: center; align-items: center; backdrop-filter: blur(4px);">
+    <div class="spinner"></div>
+    <h2 style="margin-top: 25px; color: #2f3542;">⏳ 로딩 중입니다...</h2>
+    <p style="color: #747d8c; font-size: 16px;">(최대 1분 정도 소요될 수 있습니다)</p>
+</div>
+
+<div class="sidebar">
+    <h2>Project Pythagoras</h2>
+    <hr>
+    
+    <div>
+        <h4 style="margin-bottom: 10px;">👁️ 접근성 설정</h4>
+        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+            <input type="checkbox" id="contrastToggle" onchange="toggleHighContrast()">
+            고대비 모드 (흑백)
+        </label>
+    </div>
+    
+    <div>
+        <h4 style="margin-bottom: 10px;">⚙️ 사운드 설정</h4>
+        <div class="caption">최대 주파수 설정 (Hz) <span id="freqVal" style="float: right;">800</span></div>
+        <input type="range" id="freqSlider" min="500" max="5000" step="100" value="800" 
+               oninput="document.getElementById('freqVal').innerText = this.value"
+               onchange="if(globalData.length > 0) renderUI()">
+    </div>
+    <hr>
+    
+    <div class="info-box">
+        💡 본 시스템은 저시력자 및 시각장애인 사용자의 데이터 접근성을 위해 설계되었습니다.
+    </div>
+    <div class="caption" style="margin-top: auto;">© 2026 팀 피타고라스</div>
+</div>
+
+<div class="main-content">
+    <h1>🎧 멀티모달 가청화 시스템</h1>
+    <hr>
+    <h2>📊 CSV 데이터 변환</h2>
+    
+    <div class="caption" style="margin-bottom: 10px;">CSV 파일을 업로드하세요 (단축키: U)</div>
+    
+    <div class="upload-box" onclick="document.getElementById('csvInput').click()">
+        <svg viewBox="0 0 24 24" width="40" height="40" stroke="#717684" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+        <div style="margin-top: 10px;"><span>Drag and drop file here</span></div>
+        <div class="caption">Limit 200MB per file • CSV</div>
+        <button>Browse files</button>
+    </div>
+    <input type="file" id="csvInput" accept=".csv" style="display: none;">
+
+    <canvas id="lineChart" style="max-height: 300px; display: none; margin-bottom: 30px;"></canvas>
+    
+    <hr>
+    <div id="resultsContainer"></div>
+
+    <div id="mixPanel" style="display: none; background: #ffe6e6; padding: 20px; border-radius: 12px; margin-top: 30px; border: 1px solid #ffcccc;">
+        <h3 style="margin-top:0;">🎛️ 다중 열 동시 믹싱 재생</h3>
+        <p id="mixListText" style="color: #333;">선택된 데이터: 없음</p>
+        <button class="btn-primary" id="mixBtn" onclick="playMixAudio()">▶️ 다중 믹싱 생성 및 재생 (단축키: M)</button>
+        <audio id="mixAudio" controls style="width: 100%; display: none;"></audio>
+    </div>
+</div>
+
+<script>
+    const SERVER_URL = "http://127.0.0.1:8000";
+    let globalData = []; 
+    let globalMixCandidates = []; 
+    let lineChartInstance = null;
+    
+    function toggleHighContrast() {
+        if (document.getElementById('contrastToggle').checked) {
+            document.body.classList.add('high-contrast');
+        } else {
+            document.body.classList.remove('high-contrast');
+        }
+    }
+
+    let voices = [];
+    window.speechSynthesis.onvoiceschanged = () => { voices = window.speechSynthesis.getVoices(); };
+
+    document.getElementById('csvInput').addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        
+        Papa.parse(file, {
+            header: true, dynamicTyping: true, skipEmptyLines: true,
+            complete: function(results) { processCSV(results.data); }
+        });
+        this.value = ''; 
+    });
+
+    function processCSV(data) {
+        if (data.length === 0) return alert("데이터가 없습니다.");
+        
+        let cols = Object.keys(data[0]);
+        let numericCols = [];
+        let labels = [];
+
+        const indexKeywords = ['time', 'date', 'index', '시간', '날짜', '기간', 'year', 'month', 'day', 'idx'];
+        let firstCol = cols[0];
+        let isIndexColumn = indexKeywords.some(keyword => firstCol.toLowerCase().includes(keyword));
+
+        if (isIndexColumn) {
+            labels = data.map(row => row[firstCol]);
+            cols.shift(); 
+        } else {
+            labels = Array.from({length: data.length}, (_, i) => i + 1);
+        }
+
+        cols.forEach(col => {
+            let colData = data.map(row => row[col]);
+            if (colData.some(val => typeof val === 'number')) {
+                for(let i=0; i<colData.length; i++) {
+                    if (colData[i] === null || isNaN(colData[i])) {
+                        colData[i] = colData[i-1] !== undefined ? colData[i-1] : 0;
+                    }
+                }
+                
+                let min = Math.min(...colData);
+                let max = Math.max(...colData);
+                let scaledData = colData.map(v => max !== min ? (v - min) / (max - min) : 0.5);
+                
+                numericCols.push({ name: col, originalMin: min, originalMax: max, scaledData: scaledData, rawData: colData });
+            }
+        });
+
+        globalData = numericCols;
+        drawChart(labels, numericCols);
+        renderUI();
+    }
+
+    function drawChart(labels, datasets) {
+        const ctx = document.getElementById('lineChart');
+        ctx.style.display = 'block';
+        
+        if (lineChartInstance) lineChartInstance.destroy();
+        
+        const chartDatasets = datasets.map((d, i) => ({
+            label: d.name,
+            data: d.scaledData, 
+            borderColor: `hsl(${i * 137.5 % 360}, 70%, 50%)`,
+            borderWidth: 2,
+            fill: false,
+            tension: 0.1,
+            pointRadius: 3, 
+            hoverRadius: 6
+        }));
+
+        lineChartInstance = new Chart(ctx, {
+            type: 'line',
+            data: { labels: labels, datasets: chartDatasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { 
+                    legend: { display: true, position: 'top', align: 'end', labels: { usePointStyle: true, padding: 20 } },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const datasetIndex = context.datasetIndex;
+                                const dataIndex = context.dataIndex;
+                                const rawValue = datasets[datasetIndex].rawData[dataIndex];
+                                return `${context.dataset.label}: ${rawValue}`;
+                            }
+                        }
+                    }
+                },
+                scales: { x: { grid: { display: false } }, y: { min: 0, max: 1, grid: { color: '#e6e9ef' }, ticks: { display: false } } }
+            }
+        });
+    }
+
+    // [수정됨] renderUI: 초기 로딩 시 모든 오디오 생성이 완료될 때까지 로딩 화면 표시
+    function renderUI() {
+        const container = document.getElementById('resultsContainer');
+        container.innerHTML = '';
+        document.getElementById('mixPanel').style.display = 'block';
+        
+        // 로딩 화면 표시
+        const overlay = document.getElementById('loadingOverlay');
+        overlay.style.display = 'flex';
+
+        let fetchPromises = []; // 모든 API 요청을 담을 배열
+
+        globalData.forEach((colData, index) => {
+            const card = document.createElement('div');
+            card.className = 'data-card';
+            card.innerHTML = `
+                <div>
+                    <h3 style="margin: 0 0 5px 0;">🎵 ${colData.name}</h3>
+                    <div class="caption">원본 최솟값: ${colData.originalMin.toFixed(2)} | 원본 최댓값: ${colData.originalMax.toFixed(2)}</div>
+                </div>
+                <div style="display: flex; gap: 15px; align-items: center;">
+                    <select id="waveSelect_${index}" onchange="handleWaveChange(${index})" style="padding: 6px; border-radius: 6px;">
+                        <option value="sine">기본음 (뚜-)</option>
+                        <option value="triangle">부드러운음 (푸-)</option>
+                        <option value="pulse">명확한음 (칭-)</option>
+                        <option value="square">경고음 (삐-)</option>
+                        <option value="sawtooth">강조음 (브-)</option>
+                    </select>
+                    <label><input type="checkbox" id="mixCheck_${index}" onchange="updateMix()"> 🎛️ 믹싱</label>
+                    
+                    <button class="btn-outline" id="playBtn_${index}" onclick="playAudioOnly(${index})">▶️ 바로 듣기</button>
+                    <button class="btn-outline" id="tts_btn_${index}" onclick="playSingleTTS(${index})">🔊 개별 안내 듣기</button>
+                    <audio id="audio_${index}" controls style="display: none;"></audio>
+                </div>
+            `;
+            container.appendChild(card);
+            
+            // Promise 배열에 추가
+            const initialWave = document.getElementById(`waveSelect_${index}`).value;
+            fetchPromises.push(fetchAudio(index, colData.scaledData, initialWave));
+        });
+        
+        updateMix();
+
+        // [추가됨] 모든 데이터를 백엔드에서 다 받아오면 로딩 화면 끄기
+        Promise.all(fetchPromises).then(() => {
+            overlay.style.display = 'none';
+        }).catch(err => {
+            overlay.style.display = 'none';
+            alert("서버 통신 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.");
+        });
+    }
+
+    // fetchAudio는 그대로 유지
+    async function fetchAudio(index, dataArray, waveform) {
+        const maxFreq = document.getElementById('freqSlider').value;
+        const payload = { data: dataArray, max_freq: parseFloat(maxFreq), waveform: waveform };
+        try {
+            const res = await fetch(`${SERVER_URL}/sonify-data`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            const blob = await res.blob();
+            document.getElementById(`audio_${index}`).src = URL.createObjectURL(blob);
+        } catch (error) { 
+            console.error("Error:", error); 
+            throw error; // Promise.all 에서 에러를 감지할 수 있도록 던짐
+        }
+    }
+
+    function updateMix() {
+        globalMixCandidates = [];
+        globalData.forEach((colData, index) => {
+            if (document.getElementById(`mixCheck_${index}`).checked) {
+                globalMixCandidates.push({ name: colData.name, data: colData.scaledData, waveform: document.getElementById(`waveSelect_${index}`).value });
+            }
+        });
+        const textEl = document.getElementById('mixListText');
+        textEl.innerHTML = globalMixCandidates.length > 0 ? "<strong>현재 믹싱된 데이터:</strong> " + globalMixCandidates.map(c => c.name).join(', ') : "선택된 데이터: 없음";
+    }
+
+    // [수정됨] 개별 파형 변경 시 일시적으로 버튼 비활성화 (더블 클릭 방지)
+    async function handleWaveChange(index) {
+        updateMix(); 
+        const selectEl = document.getElementById(`waveSelect_${index}`);
+        const playBtn = document.getElementById(`playBtn_${index}`);
+        
+        selectEl.disabled = true;
+        playBtn.innerText = "⏳ 생성 중...";
+        playBtn.disabled = true;
+
+        await fetchAudio(index, globalData[index].scaledData, selectEl.value);
+        
+        selectEl.disabled = false;
+        playBtn.innerText = "▶️ 바로 듣기";
+        playBtn.disabled = false;
+    }
+
+    // [수정됨] 믹싱 버튼 클릭 시 로딩 상태 처리
+    async function playMixAudio() {
+        if (globalMixCandidates.length === 0) return alert("믹싱할 데이터를 1개 이상 체크해주세요.");
+        stopAllAudio();
+        
+        const payload = {
+            data_list: globalMixCandidates.map(c => c.data),
+            max_freq: parseFloat(document.getElementById('freqSlider').value),
+            waveform_list: globalMixCandidates.map(c => c.waveform)
+        };
+        
+        const btn = document.getElementById('mixBtn');
+        btn.innerHTML = "⏳ 다중 믹싱 병합 및 생성 중... (잠시만 기다려주세요)";
+        btn.disabled = true; // 버튼 연타 방지
+
+        try {
+            const res = await fetch(`${SERVER_URL}/mix-data`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            const blob = await res.blob();
+            const mixAudio = document.getElementById('mixAudio');
+            mixAudio.src = URL.createObjectURL(blob);
+            mixAudio.play();
+        } catch (error) {
+            alert("서버 통신 에러가 발생했습니다.");
+        } finally {
+            // 통신이 끝나면 버튼 원상 복구
+            btn.innerHTML = "▶️ 다중 믹싱 생성 및 재생 (단축키: M)";
+            btn.disabled = false;
+        }
+    }
+
+    function playSingleTTS(index) {
+        stopAllAudio();
+        const colData = globalData[index];
+        const text = `${colData.name} 데이터의 최소값은 ${colData.originalMin.toFixed(2)}이고, 최대값은 ${colData.originalMax.toFixed(2)}입니다. 이어서 재생합니다.`;
+        const msg = new SpeechSynthesisUtterance(text);
+        msg.lang = 'ko-KR'; msg.rate = 1.1;
+        const maleVoice = voices.find(v => v.lang.includes('ko') && (v.name.includes('Male') || v.name.includes('남성')));
+        if (maleVoice) msg.voice = maleVoice;
+
+        msg.onend = () => { 
+            const a = document.getElementById(`audio_${index}`);
+            if (a && a.src) a.play(); 
+        };
+        window.speechSynthesis.speak(msg);
+    }
+
+    function stopAllAudio() {
+        window.speechSynthesis.cancel();
+        document.querySelectorAll('audio').forEach(a => { a.pause(); a.currentTime = 0; });
+    }
+
+    function playAudioOnly(index) {
+        stopAllAudio(); 
+        const a = document.getElementById(`audio_${index}`);
+        if (a && a.src) a.play();
+    }
+
+    document.addEventListener('keydown', function(e) {
+        if (e.metaKey || e.ctrlKey || e.altKey) return;
+        const active = document.activeElement;
+        const isTextInput = active && (active.tagName === 'INPUT' && active.type !== 'file' && active.type !== 'checkbox' && active.type !== 'range');
+        if (isTextInput) return;
+
+        const key = e.key.toLowerCase();
+
+        if (key === 'u' || key === 'ㅕ') {
+            e.preventDefault();
+            document.getElementById('csvInput').click();
+        }
+        else if (e.code === 'Space' || key === ' ') {
+            e.preventDefault(); stopAllAudio();
+        }
+        else if (key === 'm' || key === 'ㅡ') {
+            e.preventDefault();
+            const mixBtn = document.getElementById('mixBtn');
+            if (mixBtn && !mixBtn.disabled) mixBtn.click();
+        }
+        else if (!isNaN(parseInt(key)) && parseInt(key) > 0 && parseInt(key) <= 9) {
+            e.preventDefault();
+            const index = parseInt(key) - 1;
+            const btn = document.getElementById(`tts_btn_${index}`);
+            if (btn) btn.click();
+        }
+    });
+</script>
+</body>
+</html>

@@ -1,0 +1,141 @@
+/* ==========================================
+   기본 스트림릿(Streamlit) 테마 복원
+   ========================================== */
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+
+:root {
+    --bg-color: #ffffff;
+    --text-color: #31333F;
+    --sidebar-bg: #f0f2f6;
+    --primary-color: #FF4B4B;
+    --border-color: #e6e9ef;
+    --card-bg: #ffffff;
+    --info-bg: #e8f0fe;
+    --info-text: #1967d2;
+}
+
+body {
+    font-family: 'Pretendard', sans-serif;
+    margin: 0;
+    padding: 0;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    display: flex;
+    min-height: 100vh;
+    transition: all 0.3s ease;
+}
+
+/* 좌측 사이드바 레이아웃 */
+.sidebar {
+    width: 300px;
+    background-color: var(--sidebar-bg);
+    padding: 30px 20px;
+    box-sizing: border-box;
+    border-right: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+/* 우측 메인 컨텐츠 레이아웃 */
+.main-content {
+    flex: 1;
+    padding: 40px 60px;
+    box-sizing: border-box;
+    max-width: 1000px;
+}
+
+/* 텍스트 및 구분선 */
+h1, h2, h3 { font-weight: 700; margin-bottom: 10px; }
+hr { border: 0; border-top: 1px solid var(--border-color); margin: 20px 0; }
+.caption { font-size: 14px; color: #717684; }
+
+/* 스트림릿 특유의 스위치(토글) 및 슬라이더 */
+.toggle-container, .slider-container { margin-bottom: 20px; }
+input[type="range"] { width: 100%; cursor: pointer; }
+
+/* Info 안내 박스 */
+.info-box {
+    background-color: var(--info-bg);
+    color: var(--info-text);
+    padding: 15px;
+    border-radius: 8px;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+/* 스트림릿 스타일 파일 업로드 박스 */
+.upload-box {
+    background-color: #f8f9fa;
+    border: 1px dashed #caced5;
+    border-radius: 8px;
+    padding: 40px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: 0.2s;
+    margin-bottom: 30px;
+}
+.upload-box:hover { border-color: var(--primary-color); }
+.upload-box span { color: #717684; font-weight: 500; }
+.upload-box button {
+    margin-top: 15px;
+    background: white;
+    border: 1px solid #caced5;
+    padding: 6px 15px;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+/* 데이터 행 카드 */
+.data-card {
+    border-bottom: 1px solid var(--border-color);
+    padding: 20px 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+/* 버튼 스타일 */
+.btn-outline {
+    background: white;
+    border: 1px solid #caced5;
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+}
+.btn-outline:hover { border-color: var(--primary-color); color: var(--primary-color); }
+.btn-primary {
+    background: var(--primary-color);
+    color: white;
+    border: none;
+    padding: 12px 20px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    width: 100%;
+}
+
+/* ==========================================
+   [고대비 모드] 태현님이 작성하신 테마 적용
+   ========================================== */
+body.high-contrast {
+    --bg-color: #000000;
+    --text-color: #ffffff;
+    --sidebar-bg: #000000;
+    --border-color: #ffffff;
+    --card-bg: #000000;
+    --info-bg: #ffffff;
+    --info-text: #000000;
+}
+
+body.high-contrast .sidebar { border-right: 1px solid #ffffff; }
+body.high-contrast .upload-box { background-color: #ffffff; border: 2px dashed #000000; }
+body.high-contrast .upload-box * { color: #000000; font-weight: 800; }
+body.high-contrast .info-box { font-weight: bold; }
+body.high-contrast .btn-outline {
+    background-color: #ffffff; 
+    color: #000000; 
+    border: 2px solid #ffffff;
+    font-weight: 800;
+}
